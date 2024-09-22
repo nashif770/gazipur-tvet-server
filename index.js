@@ -1,20 +1,17 @@
 const express = require('express');
 const app = express();
-
 const cors = require('cors');
 require('dotenv').config();
 const port = process.env.PORT || 5000;
 
-//middleware
+// Middleware
 app.use(cors());
-app.use(express.json())
+app.use(express.json());
 
-// -----------------MongoDB Connections Starts here--------------------------------------------------------------------------------------------
-
+// -----------------MongoDB Connections Starts here --------------------------------------------------------------------------------------------
 const { MongoClient, ServerApiVersion } = require('mongodb');
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.c1krwnm.mongodb.net/?retryWrites=true&w=majority`;
 
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -25,69 +22,130 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    // Connect the client to the server	(optional starting in v4.7)
+    // Connect the client to the server
     await client.connect();
 
-    const mainCollection = client.db("reactTailwindTemplate")
+    const mainCollection = client.db("ucepComputerTrade");
 
-    const usersCollection = mainCollection.collection("user")
-    const resultCollection = mainCollection.collection("answer")
-    
-    // Get Mathod ------------------------------------------
+    const usersCollection = mainCollection.collection("users");
+    const resultCollection = mainCollection.collection("answer");
+    const questionCollection = mainCollection.collection("questionCollection"); // New collection for questions
+    const answerCollection = mainCollection.collection("answerSheet"); // New collection for questions
 
-    app.get("/", async(req,res) =>{
-      const result = await mainCollection.find().toArray();
-      res.send(result)
-    })
-    
-    // Get Mathod ------------------------------------------
-
-    // users related API -----------------------------------
-
-    app.post('/users', async(req, res)=>{
+    // Users related API -----------------------------------
+    app.post('/users', async (req, res) => {
       const user = req.body;
-      console.log(user)
-      const query = {email: user.email}
-      const existingUser = await usersCollection.findOne(query)
-      // console.log("app.post user",existingUser)
-      if(existingUser){
-        return res.send({message: 'User exists'})
+      const query = { email: user.email };
+      const existingUser = await usersCollection.findOne(query);
+      if (existingUser) {
+        return res.status(400).send({ message: 'User exists' });
       }
       const result = await usersCollection.insertOne(user);
-      res.send(result)
-    })
+      res.status(201).send(result);
+    });
 
-    app.get('/users', async(req,res)=>{
-      const result = await usersCollection.find().toArray();
-      // console.log("app.get users", result)
-      res.send(result)
-    })
-
-    // users related API -----------------------------------
+    app.get('/users', async (req, res) => {
+      try {
+        const result = await usersCollection.find().toArray();
+        res.send(result);
+      } catch (error) {
+        console.error("Error fetching users:", error);
+        res.status(500).send({ message: 'Error fetching users' });
+      }
+    });
 
     // MCQ Answer related application--------------------------
-
-    app.post('/result', async(req, res)=>{
+    app.post('/result', async (req, res) => {
       const mcqResult = req.body;
-      // console.log("mcq result",mcqResult)
-      const result = await resultCollection.insertOne(mcqResult);
-      // console.log("submitting result",result)
-      res.send(result)
-    })
+      try {
+        const result = await resultCollection.insertOne(mcqResult);
+        res.status(201).send(result);
+      } catch (error) {
+        console.error("Error saving result:", error);
+        res.status(500).send({ message: 'Error saving result' });
+      }
+    });
 
-    app.get('/result', async(req,res)=>{
-      const result = await resultCollection.find().toArray();
-      // console.log("app.get users", result)
-      res.send(result)
-    })
+    app.get('/result', async (req, res) => {
+      try {
+        const result = await resultCollection.find().toArray();
+        res.send(result);
+      } catch (error) {
+        console.error("Error fetching results:", error);
+        res.status(500).send({ message: 'Error fetching results' });
+      }
+    });
 
+    // Written Question related API--------------------------
+    // POST: Add a new question
+    app.post('/questions', async (req, res) => {
+      const { title, selectedQuestions, date, time, day } = req.body; // Destructure all necessary fields
+      console.log("Received question:", req.body); // Log the incoming question
+    
+      // Check for required fields
+      if (!title || !Array.isArray(selectedQuestions) || selectedQuestions.length === 0) {
+        return res.status(400).send({ message: 'Title and at least one question are required' });
+      }
+    
+      try {
+        // Create an object to insert into the database
+        const questionToInsert = {
+          title,
+          selectedQuestions,
+          date, // Include date
+          time, // Include time
+          day,  // Include day
+        };
+    
+        const result = await questionCollection.insertOne(questionToInsert);
+        res.status(201).send(result);
+        console.log("Question submitted successfully");
+      } catch (error) {
+        console.error("Error inserting question:", error);
+        res.status(500).send({ message: 'Error saving question' });
+      }
+    });
+    
+    
 
-    // MCQ Answer related application--------------------------
+    // GET: Retrieve all questions
+    app.get('/questions', async (req, res) => {
+      try {
+        const result = await questionCollection.find().toArray();
+        res.send(result);
+      } catch (error) {
+        console.error("Error fetching questions:", error);
+        res.status(500).send({ message: 'Error fetching questions' });
+      }
+    });
 
+    //Submit answer sheet
+    app.post('/submitAnswers', async (req, res) => {
+      const { title, answers, username, date, time, day } = req.body;
+    
+      // Log the received data
+      console.log("Received answers:", { title, answers, username, date, time, day });
+    
+      try {
+        // Insert the data into the database
+        const result = await answerCollection.insertOne({ title, answers, username, date, time, day });
+    
+        // Respond with success
+        res.status(201).send({ message: "Answers submitted successfully", result });
+      } catch (error) {
+        console.error("Error saving answers:", error);
+        res.status(500).send({ message: "Error saving answers" });
+      }
+    });
+    
+    
+    
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
+  } catch (error) {
+    console.error("Error connecting to MongoDB:", error);
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
@@ -95,13 +153,12 @@ async function run() {
 }
 run().catch(console.dir);
 
-// -----------------MongoDB Connections Ends here---------------------------------------------------------------------------------------------
+// -----------------MongoDB Connections Ends here ---------------------------------------------------------------------------------------------
 
+app.get('/', (req, res) => {
+  res.send('Template server is running');
+});
 
-app.get('/', (req, res)=>{
-    res.send('Template surver is running')
-})
-
-app.listen(port, ()=>{
-    console.log(`Server is Running at ${port}`)
-})
+app.listen(port, () => {
+  console.log(`Server is Running at ${port}`);
+});
