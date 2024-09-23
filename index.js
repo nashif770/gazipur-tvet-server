@@ -9,7 +9,7 @@ app.use(cors());
 app.use(express.json());
 
 // -----------------MongoDB Connections Starts here --------------------------------------------------------------------------------------------
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.c1krwnm.mongodb.net/?retryWrites=true&w=majority`;
 
 const client = new MongoClient(uri, {
@@ -138,8 +138,59 @@ async function run() {
       }
     });
     
+
+    // ------------Rating---------------------
+
+    // GET: Retrieve submitted answers
+app.get('/submittedAnswers', async (req, res) => {
+  try {
+    const result = await answerCollection.find().toArray();
+    res.send(result);
+  } catch (error) {
+    console.error("Error fetching submitted answers:", error);
+    res.status(500).send({ message: 'Error fetching submitted answers' });
+  }
+});
     
+    // POST: Submit ratings for each answer
+    app.post('/submitRatings', async (req, res) => {
+      const { answerSheetId, ratings } = req.body; // Expect answerSheetId and ratings to be sent
     
+      try {
+        // Validate the answerSheetId
+        if (!ObjectId.isValid(answerSheetId)) {
+          return res.status(400).send({ message: `Invalid ObjectId: ${answerSheetId}` });
+        }
+    
+        // Fetch the answer sheet document by ID
+        const answerSheet = await answerCollection.findOne({ _id: new ObjectId(answerSheetId) });
+    
+        if (!answerSheet) {
+          return res.status(404).send({ message: 'Answer sheet not found' });
+        }
+    
+        // Update the ratings for each answer based on their index
+        answerSheet.answers.forEach((answer, index) => {
+          if (ratings[index] !== undefined) {
+            answer.rating = ratings[index]; // Update the rating
+          }
+        });
+    
+        // Save the updated answer sheet back to the database
+        await answerCollection.updateOne(
+          { _id: new ObjectId(answerSheetId) },
+          { $set: { answers: answerSheet.answers } }
+        );
+    
+        res.status(201).send({ message: 'Ratings submitted successfully' });
+      } catch (error) {
+        console.error("Error submitting ratings:", error);
+        res.status(500).send({ message: "Error submitting ratings" });
+      }
+    });
+
+
+    // ------------Rating---------------------
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
