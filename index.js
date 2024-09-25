@@ -88,7 +88,6 @@ async function run() {
       }
     
       try {
-        // Create an object to insert into the database
         const questionToInsert = {
           title,
           selectedQuestions,
