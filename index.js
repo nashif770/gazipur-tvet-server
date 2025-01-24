@@ -17,7 +17,7 @@ const client = new MongoClient(uri, {
     version: ServerApiVersion.v1,
     strict: true,
     deprecationErrors: true,
-  }
+  },
 });
 
 async function run() {
@@ -29,10 +29,52 @@ async function run() {
 
     const usersCollection = mainCollection.collection("users");
     const resultCollection = mainCollection.collection("answer");
-    const questionCollection = mainCollection.collection("questionCollection"); // New collection for questions
-    const answerCollection = mainCollection.collection("answerSheet"); // New collection for questions
+    const questionCollection = mainCollection.collection("questionCollection");
+    const answerCollection = mainCollection.collection("answerSheet");
+    const motdCollection = mainCollection.collection("motd"); // New collection for Message of the Day
 
-    // Users related API -----------------------------------
+    // ----------------- Message of the Day API -----------------
+
+    // POST: Save or update the Message of the Day
+    app.post('/motd', async (req, res) => {
+      const { message } = req.body;
+
+      if (!message) {
+        return res.status(400).send({ message: 'Message of the Day is required' });
+      }
+
+      try {
+        // Upsert the message (update if exists, otherwise insert)
+        const result = await motdCollection.updateOne(
+          {},
+          { $set: { message } },
+          { upsert: true }
+        );
+
+        res.status(200).send({ message: 'Message of the Day saved successfully', result });
+      } catch (error) {
+        console.error("Error saving Message of the Day:", error);
+        res.status(500).send({ message: 'Error saving Message of the Day' });
+      }
+    });
+
+    // GET: Retrieve the Message of the Day
+    app.get('/motd', async (req, res) => {
+      try {
+        const motd = await motdCollection.findOne({});
+        if (!motd) {
+          return res.status(404).send({ message: 'No Message of the Day found' });
+        }
+        res.status(200).send({ message: motd.message });
+      } catch (error) {
+        console.error("Error fetching Message of the Day:", error);
+        res.status(500).send({ message: 'Error fetching Message of the Day' });
+      }
+    });
+
+    // ----------------- Other APIs -----------------
+
+    // Users related API
     app.post('/users', async (req, res) => {
       const user = req.body;
       const query = { email: user.email };
@@ -54,7 +96,7 @@ async function run() {
       }
     });
 
-    // MCQ Answer related application--------------------------
+    // MCQ Answer related API
     app.post('/result', async (req, res) => {
       const mcqResult = req.body;
       try {
@@ -76,38 +118,22 @@ async function run() {
       }
     });
 
-    // Written Question related API--------------------------
-    // POST: Add a new question
+    // Written Question related API
     app.post('/questions', async (req, res) => {
-      const { title, selectedQuestions, date, time, day } = req.body; // Destructure all necessary fields
-      console.log("Received question:", req.body); // Log the incoming question
-    
-      // Check for required fields
+      const { title, selectedQuestions, date, time, day } = req.body;
       if (!title || !Array.isArray(selectedQuestions) || selectedQuestions.length === 0) {
         return res.status(400).send({ message: 'Title and at least one question are required' });
       }
-    
       try {
-        const questionToInsert = {
-          title,
-          selectedQuestions,
-          date, // Include date
-          time, // Include time
-          day,  // Include day
-        };
-    
+        const questionToInsert = { title, selectedQuestions, date, time, day };
         const result = await questionCollection.insertOne(questionToInsert);
         res.status(201).send(result);
-        console.log("Question submitted successfully");
       } catch (error) {
         console.error("Error inserting question:", error);
         res.status(500).send({ message: 'Error saving question' });
       }
     });
-    
-    
 
-    // GET: Retrieve all questions
     app.get('/questions', async (req, res) => {
       try {
         const result = await questionCollection.find().toArray();
@@ -118,69 +144,48 @@ async function run() {
       }
     });
 
-    //Submit answer sheet
+    // Submit answer sheet
     app.post('/submitAnswers', async (req, res) => {
       const { title, answers, username, date, time, day } = req.body;
-    
-      // Log the received data
-      console.log("Received answers:", { title, answers, username, date, time, day });
-    
       try {
-        // Insert the data into the database
         const result = await answerCollection.insertOne({ title, answers, username, date, time, day });
-    
-        // Respond with success
         res.status(201).send({ message: "Answers submitted successfully", result });
       } catch (error) {
         console.error("Error saving answers:", error);
         res.status(500).send({ message: "Error saving answers" });
       }
     });
-    
 
-    // ------------Rating---------------------
-
-    // GET: Retrieve submitted answers
-app.get('/submittedAnswers', async (req, res) => {
-  try {
-    const result = await answerCollection.find().toArray();
-    res.send(result);
-  } catch (error) {
-    console.error("Error fetching submitted answers:", error);
-    res.status(500).send({ message: 'Error fetching submitted answers' });
-  }
-});
-    
-    // POST: Submit ratings for each answer
-    app.post('/submitRatings', async (req, res) => {
-      const { answerSheetId, ratings } = req.body; // Expect answerSheetId and ratings to be sent
-    
+    app.get('/submittedAnswers', async (req, res) => {
       try {
-        // Validate the answerSheetId
+        const result = await answerCollection.find().toArray();
+        res.send(result);
+      } catch (error) {
+        console.error("Error fetching submitted answers:", error);
+        res.status(500).send({ message: 'Error fetching submitted answers' });
+      }
+    });
+
+    // ------------ Ratings -----------------
+    app.post('/submitRatings', async (req, res) => {
+      const { answerSheetId, ratings } = req.body;
+      try {
         if (!ObjectId.isValid(answerSheetId)) {
           return res.status(400).send({ message: `Invalid ObjectId: ${answerSheetId}` });
         }
-    
-        // Fetch the answer sheet document by ID
         const answerSheet = await answerCollection.findOne({ _id: new ObjectId(answerSheetId) });
-    
         if (!answerSheet) {
           return res.status(404).send({ message: 'Answer sheet not found' });
         }
-    
-        // Update the ratings for each answer based on their index
         answerSheet.answers.forEach((answer, index) => {
           if (ratings[index] !== undefined) {
-            answer.rating = ratings[index]; // Update the rating
+            answer.rating = ratings[index];
           }
         });
-    
-        // Save the updated answer sheet back to the database
         await answerCollection.updateOne(
           { _id: new ObjectId(answerSheetId) },
           { $set: { answers: answerSheet.answers } }
         );
-    
         res.status(201).send({ message: 'Ratings submitted successfully' });
       } catch (error) {
         console.error("Error submitting ratings:", error);
@@ -188,17 +193,11 @@ app.get('/submittedAnswers', async (req, res) => {
       }
     });
 
-
-    // ------------Rating---------------------
-
-    // Send a ping to confirm a successful connection
+    // Ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    console.log("Connected to MongoDB successfully!");
   } catch (error) {
     console.error("Error connecting to MongoDB:", error);
-  } finally {
-    // Ensures that the client will close when you finish/error
-    // await client.close();
   }
 }
 run().catch(console.dir);
@@ -210,5 +209,5 @@ app.get('/', (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Server is Running at ${port}`);
+  console.log(`Server is running at http://localhost:${port}`);
 });
